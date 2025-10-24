@@ -1,0 +1,6 @@
+fastapi==0.120.0
+langchain_text_splitters==1.0.0
+openai==2.6.0
+pinecone==7.3.0
+python-dotenv==1.1.1
+uvicorn==0.38.0
