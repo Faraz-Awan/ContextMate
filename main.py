@@ -1,6 +1,7 @@
 import os
 import uuid
 from fastapi import FastAPI, HTTPException, Body
+from fastapi.responses import StreamingResponse
 from pinecone import Pinecone
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from openai import OpenAI
@@ -25,7 +26,7 @@ client = OpenAI(
 
 app = FastAPI()
 
-@app.post("/words")
+@app.post("/upsert")
 def upsert_text(
     text: str = Body(..., media_type="text/plain")
 ):
@@ -64,21 +65,21 @@ def query_db(query: str = Body(..., media_type="text/plain")):
 @app.post("/ask-test")
 def ask_llm(query: str = Body(..., media_type="text/plain")):
     system_prompt = (
-        "You are an assistant that answers questions"
+        "You are an assistant that must always write your final answer in the message content, "
+        "after reasoning internally. Do not leave the message content blank."
     )
 
     user_prompt = f"Question: {query}"
 
     completion = client.chat.completions.create(
-        model="openai/gpt-oss-20b:free",
+        model="openai/gpt-4o-mini",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.0,
-        max_tokens=512
+        max_tokens=5120
     )
-
     return completion.choices[0].message.content
 
 @app.post("/ask-context")
@@ -95,7 +96,7 @@ def ask_llm_context(query: str = Body(..., media_type="text/plain")):
     user_prompt = f"Context:\n{context}\n\nQuestion: {query}"
 
     completion = client.chat.completions.create(
-        model="openai/gpt-oss-20b:free",
+        model="openai/gpt-4o-mini",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -105,3 +106,44 @@ def ask_llm_context(query: str = Body(..., media_type="text/plain")):
     )
 
     return completion.choices[0].message.content
+
+@app.post("/ask-context-stream")
+def ask_llm_context_stream(query: str = Body(..., media_type="text/plain")):
+    retrieved_chunks = query_db(query)
+    context = "\n\n".join(retrieved_chunks)
+
+    system_prompt = (
+        "You are an assistant that answers questions strictly based on the provided context. "
+        "If the context does not contain the answer, say 'I don't know'. "
+        "Use citations like [S1], [S2] when referencing sources."
+    )
+
+    user_prompt = f"Context:\n{context}\n\nQuestion: {query}"
+
+    def stream():
+        completion_stream = client.chat.completions.create(
+            model="openai/gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.0,
+            max_tokens=512,
+            stream=True,
+        )
+
+        for chunk in completion_stream:
+            if not chunk.choices:
+                continue
+
+            delta = chunk.choices[0].delta
+            text_piece = delta.content or ""
+            if text_piece:
+                yield text_piece.encode("utf-8")
+
+            finish_reason = chunk.choices[0].finish_reason
+            if finish_reason is not None:
+                break
+
+    # ✅ use plain/text for curl visibility
+    return StreamingResponse(stream(), media_type="text/plain")
