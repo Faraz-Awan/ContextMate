@@ -2,6 +2,7 @@ import os
 import uuid
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pinecone import Pinecone
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from openai import OpenAI
@@ -25,6 +26,13 @@ client = OpenAI(
 )
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # development convenience; tighten before production
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.post("/upsert")
 def upsert_text(
@@ -57,16 +65,21 @@ def query_db(query: str = Body(..., media_type="text/plain")):
     namespace="__default__", 
     query={
         "inputs": {"text": query}, 
-        "top_k": 2
+        "top_k": 3
     }
     )
     return [x['fields']['text'] for x in results['result']['hits']]
+
+
+@app.post("/query")
+def query_db_post(query: str = Body(..., media_type="text/plain")):
+    return query_db(query)
 
 @app.post("/ask-test")
 def ask_llm(query: str = Body(..., media_type="text/plain")):
     system_prompt = (
         "You are an assistant that must always write your final answer in the message content, "
-        "after reasoning internally. Do not leave the message content blank."
+        "after reasoning internally. Do not leave the message content blank. If you are not sure"
     )
 
     user_prompt = f"Question: {query}"
@@ -88,10 +101,16 @@ def ask_llm_context(query: str = Body(..., media_type="text/plain")):
     context = "\n\n".join(retrieved_chunks)
 
     system_prompt = (
-        "You are an assistant that answers questions "
-        "based strictly on the provided context. "
-        "Use citations like [S1], [S2] when referencing sources."
-    )
+        "You are a concise and factual assistant."
+
+        "Always provide clear, well-structured answers to the user’s questions." 
+        "If you are not confident that your answer is correct, or if the information is not verifiable, say “I’m not sure about that” instead of guessing." 
+
+        "Do not make up facts, people, events, numbers, or citations." 
+        "Base your reasoning only on general, reliable knowledge, not speculation or imagination." 
+
+        "Keep your answers short and focused unless the user explicitly asks for detail."
+        )
 
     user_prompt = f"Context:\n{context}\n\nQuestion: {query}"
 
