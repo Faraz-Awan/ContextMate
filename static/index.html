@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RAG Playground</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f5f5f7;
+        --card: #ffffff;
+        --border: #d9d9e3;
+        --text: #1f1f24;
+        --muted: #6b6b76;
+        --accent: #2563eb;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        margin: 0;
+        padding: 2rem;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      h1,
+      h2 {
+        margin: 0 0 0.5rem;
+      }
+
+      p {
+        margin-top: 0;
+        color: var(--muted);
+      }
+
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        display: grid;
+        gap: 1.5rem;
+      }
+
+      section {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 1.5rem;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      }
+
+      textarea,
+      input[type="text"] {
+        width: 100%;
+        font: inherit;
+        padding: 0.85rem 1rem;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--text);
+        resize: vertical;
+      }
+
+      textarea {
+        min-height: 140px;
+      }
+
+      button {
+        appearance: none;
+        border: none;
+        border-radius: 999px;
+        padding: 0.75rem 1.5rem;
+        font-weight: 600;
+        font-size: 0.95rem;
+        cursor: pointer;
+        background: var(--accent);
+        color: white;
+        transition: transform 120ms ease, box-shadow 120ms ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 20px rgba(37, 99, 235, 0.25);
+      }
+
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        box-shadow: none;
+      }
+
+      .stack {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-top: 1rem;
+      }
+
+      .output {
+        margin-top: 1rem;
+        padding: 1rem;
+        background: #0f172a;
+        color: #e2e8f0;
+        border-radius: 10px;
+        min-height: 100px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+      }
+
+      .status {
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+
+      @media (max-width: 640px) {
+        body {
+          padding: 1rem;
+        }
+
+        button {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>🧠 RAG Playground</h1>
+        <p>Load documents into Pinecone, then ask streaming questions backed by retrieved context.</p>
+      </header>
+
+      <section id="upload-card">
+        <h2>1. Ingest Text</h2>
+        <p>Paste arbitrary text and send it to the `/upsert` endpoint. The server chunks and stores it in Pinecone.</p>
+        <textarea id="doc-input" placeholder="Paste your reference material here..."></textarea>
+        <div class="stack">
+          <button id="upload-btn">Send to /upsert</button>
+          <span id="upload-status" class="status"></span>
+        </div>
+      </section>
+
+      <section id="query-card">
+        <h2>2. Retrieve Context (optional)</h2>
+        <p>Hit `/query` to see the nearest chunks the RAG service would use. Helpful when debugging ingest quality.</p>
+        <input id="query-input" type="text" placeholder="Enter a search query" />
+        <div class="stack">
+          <button id="query-btn">Query Pinecone</button>
+          <span id="query-status" class="status"></span>
+        </div>
+        <div id="query-output" class="output"></div>
+      </section>
+
+      <section id="ask-card">
+        <h2>3. Ask with Streaming</h2>
+        <p>Submit a question to `/ask-context-stream`. Tokens stream in as they are generated.</p>
+        <input id="ask-input" type="text" placeholder="e.g., Summarize the main causes and outcomes of the Rift Wars." />
+        <div class="stack">
+          <button id="ask-btn">Ask</button>
+          <span id="ask-status" class="status"></span>
+        </div>
+        <div id="ask-output" class="output"></div>
+      </section>
+    </main>
+
+    <script>
+      const DEFAULT_API_BASE =
+        window.location.port === "5500"
+          ? "http://127.0.0.1:8000"
+          : window.location.origin;
+      const API_BASE = window.API_BASE || DEFAULT_API_BASE;
+
+      const docInput = document.getElementById("doc-input");
+      const uploadBtn = document.getElementById("upload-btn");
+      const uploadStatus = document.getElementById("upload-status");
+
+      const queryInput = document.getElementById("query-input");
+      const queryBtn = document.getElementById("query-btn");
+      const queryStatus = document.getElementById("query-status");
+      const queryOutput = document.getElementById("query-output");
+
+      const askInput = document.getElementById("ask-input");
+      const askBtn = document.getElementById("ask-btn");
+      const askStatus = document.getElementById("ask-status");
+      const askOutput = document.getElementById("ask-output");
+
+      async function postPlain(path, body) {
+        const resp = await fetch(`${API_BASE}${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain" },
+          body,
+        });
+
+        if (!resp.ok) {
+          const detail = await resp.text();
+          throw new Error(`HTTP ${resp.status} – ${detail}`);
+        }
+        return resp;
+      }
+
+      uploadBtn.addEventListener("click", async () => {
+        const payload = docInput.value.trim();
+        if (!payload) {
+          uploadStatus.textContent = "Please paste some text first.";
+          return;
+        }
+        uploadStatus.textContent = "Uploading…";
+        uploadBtn.disabled = true;
+
+        try {
+          const resp = await postPlain("/upsert", payload);
+          const json = await resp.json();
+          uploadStatus.textContent = `Stored ${json.chunks_uploaded} chunks.`;
+        } catch (err) {
+          uploadStatus.textContent = `Failed: ${err.message}`;
+        } finally {
+          uploadBtn.disabled = false;
+        }
+      });
+
+      queryBtn.addEventListener("click", async () => {
+        const query = queryInput.value.trim();
+        if (!query) {
+          queryStatus.textContent = "Enter a query.";
+          return;
+        }
+        queryStatus.textContent = "Searching…";
+        queryOutput.textContent = "";
+        queryBtn.disabled = true;
+
+        try {
+          const resp = await postPlain("/query", query);
+          const results = await resp.json();
+          queryOutput.textContent = results.join("\n\n---\n\n");
+          queryStatus.textContent = `Returned ${results.length} snippet(s).`;
+        } catch (err) {
+          queryStatus.textContent = `Failed: ${err.message}`;
+        } finally {
+          queryBtn.disabled = false;
+        }
+      });
+
+      askBtn.addEventListener("click", async () => {
+        const question = askInput.value.trim();
+        if (!question) {
+          askStatus.textContent = "Enter a question.";
+          return;
+        }
+
+        askStatus.textContent = "Streaming response…";
+        askOutput.textContent = "";
+        askBtn.disabled = true;
+
+        try {
+          const response = await postPlain("/ask-context-stream", question);
+          if (!response.body || !response.body.getReader) {
+            throw new Error("Streaming unsupported in this browser.");
+          }
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            askOutput.textContent += decoder.decode(value, { stream: true });
+          }
+          askStatus.textContent = "Done.";
+        } catch (err) {
+          askStatus.textContent = `Failed: ${err.message}`;
+        } finally {
+          askBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
