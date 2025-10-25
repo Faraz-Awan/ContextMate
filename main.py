@@ -1,8 +1,9 @@
 import os
 import uuid
 from fastapi import FastAPI, HTTPException, Body
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pinecone import Pinecone
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from openai import OpenAI
@@ -33,6 +34,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def serve_root():
+    return FileResponse("static/index.html")
 
 @app.post("/upsert")
 def upsert_text(
