@@ -16,8 +16,14 @@ This RAG (Retrieval-Augmented Generation) Knowledge Assistant API enables multi-
 - LangChain
 - OpenAI
 - Docker
-- Google Cloud Run  
+- Google Cloud Run
 
+## Future Work
+- Hybrid Search (Semantic + Lexical Search)
+- "Delete my Namespace" button
+- Content Moderation System
+- Authentication & Rate Limiting
+- UI/UX Polish
 
 ## Getting Started (Local)  
 ```bash
