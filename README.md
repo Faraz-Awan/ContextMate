@@ -29,6 +29,7 @@ It creates per-user semantic namespaces so you can upload any text (study notes,
 - Google Cloud Run
 
 ## Future Work
+- Observability with Grafana Cloud
 - Hybrid Search (Semantic + Lexical Search)
 - "Delete my Namespace" button
 - Content Moderation System
