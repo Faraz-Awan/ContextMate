@@ -29,10 +29,13 @@ client = OpenAI(
 
 app = FastAPI()
 
-# NOTE: keep wide-open CORS for demo; tighten before production
+# Allow CORS only for local development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://127.0.0.1:5500",  # your local Live Server origin
+        "http://localhost:5500",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
