@@ -33,7 +33,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://127.0.0.1:5500",  # your local Live Server origin
+        "http://127.0.0.1:5500",
         "http://localhost:5500",
     ],
     allow_methods=["*"],
@@ -59,6 +59,7 @@ def get_namespace(request: Request) -> str:
 
 @app.get("/", include_in_schema=False)
 def serve_root():
+    """Serve the main static HTML page at the application root."""
     return FileResponse("static/index.html")
 
 @app.get("/whoami")
@@ -72,6 +73,10 @@ def upsert_text(
     request: Request,
     text: str = Body(..., media_type="text/plain")
 ):
+    """
+    Chunks text for embedding into Pinecone and returns a status message,
+    the namespace, and number of chunks uploaded into the database.
+    """
     namespace = get_namespace(request)
 
     splitter = RecursiveCharacterTextSplitter(
@@ -97,6 +102,10 @@ def upsert_text(
 
 @app.get("/query")
 def query_db_get(request: Request, query: str = Query(..., min_length=1)):
+    """
+    Searches Pinecone database for the 10 chunks with the highest
+    similarity score to the query and returns them in a list.
+    """
     namespace = get_namespace(request)
     results = index.search(
         namespace=namespace, 
@@ -107,10 +116,12 @@ def query_db_get(request: Request, query: str = Query(..., min_length=1)):
 
 @app.post("/query")
 def query_db_post(request: Request, query: str = Body(..., media_type="text/plain")):
+    """Handle POST search requests and respond with the matching chunk list as JSON."""
     return JSONResponse(content=query_db_get(request, query))
 
 @app.post("/ask-test")
 def ask_llm(request: Request, query: str = Body(..., media_type="text/plain")):
+    """Run a bare LLM call without context to validate the upstream model wiring."""
     system_prompt = (
         "You are an assistant that must always write your final answer in the message content, "
         "after reasoning internally. Do not leave the message content blank. If you are not sure,"
@@ -132,6 +143,7 @@ def ask_llm(request: Request, query: str = Body(..., media_type="text/plain")):
 
 @app.post("/ask-context")
 def ask_llm_context(request: Request, query: str = Body(..., media_type="text/plain")):
+    """Answer a question with retrieved Pinecone context to ground the LLM response."""
     retrieved_chunks = query_db_get(request, query)
     context = "\n\n".join(retrieved_chunks)
 
@@ -160,6 +172,7 @@ def ask_llm_context(request: Request, query: str = Body(..., media_type="text/pl
 
 @app.post("/ask-context-stream")
 def ask_llm_context_stream(request: Request, query: str = Body(..., media_type="text/plain")):
+    """Stream context-grounded LLM output back to the client as tokens arrive."""
     retrieved_chunks = query_db_get(request, query)
     context = "\n\n".join(retrieved_chunks)
 

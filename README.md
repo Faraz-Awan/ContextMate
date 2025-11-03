@@ -29,10 +29,12 @@ It creates per-user semantic namespaces so you can upload any text (study notes,
 - Google Cloud Run
 
 ## Future Work
+- Switch from OpenAI Completions API to Responses API
 - Observability with Grafana Cloud
 - Hybrid Search (Semantic + Lexical Search)
 - "Delete my Namespace" button
 - Content Moderation System
+- Terms of Service
 - Authentication & Rate Limiting
 - UI/UX Polish
 
